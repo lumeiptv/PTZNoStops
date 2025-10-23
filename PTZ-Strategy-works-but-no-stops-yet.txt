@@ -41,6 +41,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private double contract2StopPrice;
 		private bool contract1Exited;
 		private bool contract2BreakevenSet;
+		private double initialStopPrice;
 
 		private class LevelCrossInfo
 		{
@@ -95,6 +96,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				Contract2BreakevenTicks = 4;
 				Contract2TrailTicks = 7;
 
+				InitialStopLossTicks = 22;
+
 				KeywordSupport = "Support";
 				KeywordResistance = "Resistance";
 				KeywordPivotBull = "Pivot Bull";
@@ -137,6 +140,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				contract2StopPrice = 0;
 				contract1Exited = false;
 				contract2BreakevenSet = false;
+				initialStopPrice = 0;
 			}
 		}
 
@@ -214,6 +218,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					profitTicks = (currentPrice - entryPrice) / TickSize;
 
+					// Check initial stop loss
+					if (initialStopPrice > 0 && currentPrice <= initialStopPrice)
+					{
+						ExitLong("InitialStop", "");
+						Print(string.Format("{0}: LONG initial stop hit at {1:F2}", Time[0], currentPrice));
+						return;
+					}
+
 					if (Position.Quantity >= 2 && !contract1Exited)
 					{
 						if (profitTicks >= Contract1ScalpTicks)
@@ -263,6 +275,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 				else if (Position.MarketPosition == MarketPosition.Short)
 				{
 					profitTicks = (entryPrice - currentPrice) / TickSize;
+
+					// Check initial stop loss
+					if (initialStopPrice > 0 && currentPrice >= initialStopPrice)
+					{
+						ExitShort("InitialStop", "");
+						Print(string.Format("{0}: SHORT initial stop hit at {1:F2}", Time[0], currentPrice));
+						return;
+					}
 
 					if (Position.Quantity >= 2 && !contract1Exited)
 					{
@@ -332,6 +352,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 					contract1Exited = false;
 					contract2BreakevenSet = false;
 					contract2StopPrice = 0;
+					initialStopPrice = Close[0] - (InitialStopLossTicks * TickSize);
+					Print(string.Format("{0}: LONG initial stop set at {1:F2}", Time[0], initialStopPrice));
 
 					if (EnableLevelCooldown && buyLevelPrice > 0)
 					{
@@ -362,6 +384,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 					contract1Exited = false;
 					contract2BreakevenSet = false;
 					contract2StopPrice = 0;
+					initialStopPrice = Close[0] + (InitialStopLossTicks * TickSize);
+					Print(string.Format("{0}: SHORT initial stop set at {1:F2}", Time[0], initialStopPrice));
 
 					if (EnableLevelCooldown && sellLevelPrice > 0)
 					{
@@ -755,6 +779,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					contract1Exited = false;
 					contract2BreakevenSet = false;
 					contract2StopPrice = 0;
+					initialStopPrice = 0;
 				}
 			}
 			catch (Exception ex)
@@ -838,6 +863,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 		[Range(1, int.MaxValue)]
 		[Display(Name="Contract 2: Trail Distance (Ticks)", Description="Trail stop distance behind price", Order=5, GroupName="3) Exit Settings")]
 		public int Contract2TrailTicks { get; set; }
+
+		[NinjaScriptProperty]
+		[Range(1, int.MaxValue)]
+		[Display(Name="Initial Stop Loss (Ticks)", Description="Initial stop loss for all contracts at entry", Order=6, GroupName="3) Exit Settings")]
+		public int InitialStopLossTicks { get; set; }
 
 		[NinjaScriptProperty]
 		[Display(Name="Support Keyword", Order=1, GroupName="4) Keywords")]
