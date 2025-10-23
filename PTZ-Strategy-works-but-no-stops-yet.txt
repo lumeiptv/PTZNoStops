@@ -43,6 +43,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private bool contract2BreakevenSet;
 		private double initialStopPrice;
 
+		private List<string> proximityLevelTypes;
+
 		private class LevelCrossInfo
 		{
 			public bool CrossedAbove { get; set; }
@@ -119,6 +121,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 				EnableLevelCooldown = true;
 				LevelCooldownMinutes = 5;
+
+				RequireProximityLevels = false;
+				MinProximityLevels = 2;
+				ProximityDistanceTicks = 5;
+
+				ProximityIncludeSupport = true;
+				ProximityIncludeResistance = true;
+				ProximityIncludePivotBull = true;
+				ProximityIncludePivotBear = true;
+				ProximityIncludeStrengthConfirmed = true;
+				ProximityIncludeWeaknessConfirmed = true;
+				ProximityIncludeGL = true;
 			}
 			else if (State == State.Configure)
 			{
@@ -141,6 +155,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				contract1Exited = false;
 				contract2BreakevenSet = false;
 				initialStopPrice = 0;
+
+				BuildProximityLevelTypes();
 			}
 		}
 
@@ -578,6 +594,15 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 					if (isBuyLevel)
 					{
+						// Check proximity requirement
+						if (RequireProximityLevels)
+						{
+							if (!HasMinimumProximityLevels(currentLevelPrice, true))
+							{
+								continue;
+							}
+						}
+
 						if (levelCrossTracker.ContainsKey(currentLevelPrice))
 						{
 							var crossInfo = levelCrossTracker[currentLevelPrice];
@@ -656,6 +681,15 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 					if (isSellLevel)
 					{
+						// Check proximity requirement
+						if (RequireProximityLevels)
+						{
+							if (!HasMinimumProximityLevels(currentLevelPrice, false))
+							{
+								continue;
+							}
+						}
+
 						if (levelCrossTracker.ContainsKey(currentLevelPrice))
 						{
 							var crossInfo = levelCrossTracker[currentLevelPrice];
@@ -785,6 +819,84 @@ namespace NinjaTrader.NinjaScript.Strategies
 			catch (Exception ex)
 			{
 				Print(string.Format("{0}: ERROR closing positions: {1}", Time[0], ex.Message));
+			}
+		}
+
+		private void BuildProximityLevelTypes()
+		{
+			proximityLevelTypes = new List<string>();
+
+			if (ProximityIncludeSupport)
+				proximityLevelTypes.Add(KeywordSupport.ToLower());
+			if (ProximityIncludeResistance)
+				proximityLevelTypes.Add(KeywordResistance.ToLower());
+			if (ProximityIncludePivotBull)
+				proximityLevelTypes.Add(KeywordPivotBull.ToLower());
+			if (ProximityIncludePivotBear)
+				proximityLevelTypes.Add(KeywordPivotBear.ToLower());
+			if (ProximityIncludeStrengthConfirmed)
+				proximityLevelTypes.Add(KeywordStrengthConfirmed.ToLower());
+			if (ProximityIncludeWeaknessConfirmed)
+				proximityLevelTypes.Add(KeywordWeaknessConfirmed.ToLower());
+			if (ProximityIncludeGL)
+				proximityLevelTypes.Add(KeywordGL.ToLower());
+		}
+
+		private bool HasMinimumProximityLevels(double targetLevelPrice, bool isBuyLevel)
+		{
+			try
+			{
+				double proximityDistance = ProximityDistanceTicks * TickSize;
+				int nearbyLevelsCount = 1; // Count the target level itself
+
+				lock (priceLevels)
+				{
+					foreach (var level in priceLevels)
+					{
+						double otherLevelPrice = level.Key;
+						string description = level.Value.ToLower();
+
+						// Skip the target level itself
+						if (Math.Abs(otherLevelPrice - targetLevelPrice) < TickSize * 0.1)
+							continue;
+
+						// Check if within proximity distance
+						if (Math.Abs(otherLevelPrice - targetLevelPrice) <= proximityDistance)
+						{
+							// Check if this level type is included in proximity check
+							bool isIncludedType = false;
+							foreach (string levelType in proximityLevelTypes)
+							{
+								if (description.Contains(levelType))
+								{
+									isIncludedType = true;
+									break;
+								}
+							}
+
+							if (isIncludedType)
+							{
+								nearbyLevelsCount++;
+
+								if (nearbyLevelsCount >= MinProximityLevels)
+								{
+									Print(string.Format("{0}: Proximity requirement met - {1} levels within {2} ticks of {3:F2}",
+										Time[0], nearbyLevelsCount, ProximityDistanceTicks, targetLevelPrice));
+									return true;
+								}
+							}
+						}
+					}
+				}
+
+				Print(string.Format("{0}: Proximity requirement NOT met - only {1} levels within {2} ticks of {3:F2} (need {4})",
+					Time[0], nearbyLevelsCount, ProximityDistanceTicks, targetLevelPrice, MinProximityLevels));
+				return false;
+			}
+			catch (Exception ex)
+			{
+				Print(string.Format("{0}: ERROR in HasMinimumProximityLevels: {1}", Time[0], ex.Message));
+				return false;
 			}
 		}
 
@@ -947,6 +1059,48 @@ namespace NinjaTrader.NinjaScript.Strategies
 		[Range(1, 1440)]
 		[Display(Name="Cooldown Minutes", Order=2, GroupName="7) Level Cooldown")]
 		public int LevelCooldownMinutes { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Require Proximity Levels", Description="Only trade when minimum number of levels are close together", Order=1, GroupName="8) Proximity Filter")]
+		public bool RequireProximityLevels { get; set; }
+
+		[NinjaScriptProperty]
+		[Range(2, 10)]
+		[Display(Name="Minimum Proximity Levels", Description="Minimum number of nearby levels required (including target level)", Order=2, GroupName="8) Proximity Filter")]
+		public int MinProximityLevels { get; set; }
+
+		[NinjaScriptProperty]
+		[Range(1, 100)]
+		[Display(Name="Proximity Distance (Ticks)", Description="Maximum distance between levels to count as proximity", Order=3, GroupName="8) Proximity Filter")]
+		public int ProximityDistanceTicks { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Include Support", Description="Count Support levels in proximity check", Order=4, GroupName="8) Proximity Filter")]
+		public bool ProximityIncludeSupport { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Include Resistance", Description="Count Resistance levels in proximity check", Order=5, GroupName="8) Proximity Filter")]
+		public bool ProximityIncludeResistance { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Include Pivot Bull", Description="Count Pivot Bull levels in proximity check", Order=6, GroupName="8) Proximity Filter")]
+		public bool ProximityIncludePivotBull { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Include Pivot Bear", Description="Count Pivot Bear levels in proximity check", Order=7, GroupName="8) Proximity Filter")]
+		public bool ProximityIncludePivotBear { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Include Strength Confirmed", Description="Count Strength Confirmed levels in proximity check", Order=8, GroupName="8) Proximity Filter")]
+		public bool ProximityIncludeStrengthConfirmed { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Include Weakness Confirmed", Description="Count Weakness Confirmed levels in proximity check", Order=9, GroupName="8) Proximity Filter")]
+		public bool ProximityIncludeWeaknessConfirmed { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name="Include GL Levels", Description="Count GL levels in proximity check", Order=10, GroupName="8) Proximity Filter")]
+		public bool ProximityIncludeGL { get; set; }
 
 		#endregion
 	}
